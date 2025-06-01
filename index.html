@@ -1,3 +1,94 @@
+#!/bin/bash
+
+# Define the path to the token file
+TOKEN_FILE="./token.txt"
+
+# Check if the token file exists
+if [ ! -f "$TOKEN_FILE" ]; then
+    echo "Error: Token file '$TOKEN_FILE' not found."
+    echo "Please create a 'token.txt' file in the same directory containing your authorization token."
+    exit 1
+fi
+
+# Read the token from the file and remove any trailing newlines or carriage returns
+TOKEN=$(cat "$TOKEN_FILE" | tr -d '\n\r')
+
+# Check if the token is empty (after stripping newlines)
+if [ -z "$TOKEN" ]; then
+    echo "Error: Token is empty after reading from '$TOKEN_FILE'. Please ensure your authorization token is present and correctly formatted in the file."
+    exit 1
+fi
+
+# Base API endpoint for listing ALL projects
+BASE_API_URL="https://api-gw.platform.linuxfoundation.org/project-service/v1/projects"
+
+# Pagination parameters
+PAGE_SIZE=100 # Adjust this based on API's maximum or recommended page size
+OFFSET=0     # Start with offset 0
+
+# Initialize project counter for projects that will be displayed in HTML
+PROJECTS_LISTED_COUNT=0
+
+echo "Fetching projects, filtering, sorting, and generating HTML..."
+echo "--------------------------------------------------------------------------"
+
+# Define a jq function for custom category sorting order AND filtering
+# This function defines the logic for sorting and selecting categories for the HTML output.
+JQ_HTML_PROCESSOR='
+# Assigns a numerical rank to categories for custom sorting.
+# Categories not listed here will receive rank 0, meaning they will be filtered out.
+def category_rank:
+  if .Category == "TAG" then 1
+  elif .Category == "Graduated" then 2
+  elif .Category == "Incubating" then 3 # Note: "Incubating" used based on previous API response
+  elif .Category == "Sandbox" then 4
+  else 0 # Projects with other categories or no category will be filtered out.
+  end;
+
+# Process the stream of project JSON objects:
+# 1. Slurp all incoming JSON objects into a single array.
+# 2. Add a temporary sort key based on the category_rank function.
+# 3. Filter out projects whose category rank is 0 (i.e., not one of the desired categories).
+# 4. Sort the remaining projects first by the custom category rank, then alphabetically by Name.
+# 5. Group the sorted projects by their original Category to create the HTML headings.
+# 6. Crucially, sort these groups themselves by the category rank of their first element.
+# 7. Map each category group to its HTML representation (h2 and ul/li elements).
+# 8. Concatenate all generated HTML strings.
+[inputs] | # Slurp all incoming JSON objects into an array
+map(. + {category_sort_key: category_rank}) | # Add sort key to each object
+map(select(.category_sort_key > 0)) | # Filter out projects not in desired categories
+sort_by([.category_sort_key, .Name]) | # Sort by custom category order and then by Name
+group_by(.Category) | # Group projects by their Category
+
+sort_by(.[0].category_sort_key) | # Sort the groups themselves by the category rank
+
+# Iterate through each category group to build the HTML structure
+map(
+    # Get the category name for the heading (guaranteed to be one of the four due to filtering)
+    (.[0].Category) as $current_category_name |
+
+    # Start the HTML for this category group (h2 and ul)
+    "<h2>" + $current_category_name + "</h2>\n<ul class=\"project-list\">\n" + # Added class for JS filtering
+
+    # Iterate through projects within this specific category group (li elements)
+    (map(
+        # Generate an HTML list item for each project with logo, calendar link, and code link
+        # FIX: Corrected the logic for ProjectLogo fallback using `select(length > 0)` and `//`
+        "<li class=\"project-item\"><img src=\"" + ((.ProjectLogo | select(length > 0)) // "https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/cncf.svg") + "\" alt=\"" + .Name + " Logo\" class=\"project-logo\"> " + .Name + " (<a href=\"https://zoom-lfx.platform.linuxfoundation.org/meetings/" + (.Slug | @uri) + "\">Project calendar</a>)" +
+        # Conditionally add "Project code" link if RepositoryURL exists and is not empty
+        (if .RepositoryURL and (.RepositoryURL | length > 0) then " (<a href=\"" + .RepositoryURL + "\">Project code</a>)" else "" end) +
+        "</li>\n"
+    ) | add) + # 'add' concatenates all <li> strings
+
+    "</ul>\n" # Close the unordered list for this category
+) | add # 'add' concatenates all the category HTML blocks
+'
+
+# Start the HTML file and pipe all collected JSON into jq for final processing
+OUTPUT_HTML_FILE="index.html"
+{
+    # Print the HTML header, the new CNCF calendar entry, and the search box
+    cat <<EOF
 <!DOCTYPE html>
 <html>
 <head>
@@ -20,6 +111,14 @@
             box-sizing: border-box; /* Include padding in width */
             font-size: 1.1em;
         }
+        /* Style for project logos */
+        .project-logo {
+            width: 110px;  /* Set fixed width for project logos */
+            height: 110px; /* Set fixed height for project logos */
+            vertical-align: middle; /* Align with text */
+            margin-right: 8px; /* Space between logo and text */
+            object-fit: contain; /* Ensure image fits within bounds without cropping */
+        }
     </style>
 </head>
 <body>
@@ -27,7 +126,7 @@
 
     <h2>Main Calendars</h2>
     <ul>
-        <li>CNCF Main calendar (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/cncf">Project calendar</a>)</li>
+        <li><img src="https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/cncf.svg" alt="CNCF Logo" width="200" height="200" style="vertical-align: middle; margin-right: 8px; object-fit: contain;"> CNCF Main calendar (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/cncf">Project calendar</a>)</li>
     </ul>
 
     <input type="text" id="search-box" onkeyup="filterProjects()" placeholder="Search for projects...">
@@ -68,264 +167,57 @@
         }
     </script>
 
-<h2>TAG</h2>
-<ul class="project-list">
-<li class="project-item">TAG Developer Experience (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/tag-developer-experience">Project calendar</a>)</li>
-<li class="project-item">TAG Infrastructure (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/tag-infrastructure">Project calendar</a>)</li>
-<li class="project-item">TAG Operational Resilience (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/tag-operational-resilience">Project calendar</a>)</li>
-<li class="project-item">TAG Security and Compliance (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/tag-security-and-compliance">Project calendar</a>)</li>
-<li class="project-item">TAG Workloads Foundation (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/tag-workloads-foundation">Project calendar</a>)</li>
-<li class="project-item">TOC Community Initiatives (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/artificial-intelligence-subproject">Project calendar</a>)</li>
-<li class="project-item">TOC Contributor Strategy Subproject (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/toc-contributor-strategy-subproject">Project calendar</a>)</li>
-<li class="project-item">TOC Mentoring Subproject (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/toc-mentoring-subproject">Project calendar</a>)</li>
-<li class="project-item">TOC Project Reviews Subproject (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/toc-project-reviews-subproject">Project calendar</a>)</li>
-</ul>
-<h2>Graduated</h2>
-<ul class="project-list">
-<li class="project-item">Containerd (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/containerd">Project calendar</a>)</li>
-<li class="project-item">CoreDNS (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/coredns">Project calendar</a>)</li>
-<li class="project-item">Envoy (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/envoy">Project calendar</a>)</li>
-<li class="project-item">Etcd (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/etcd">Project calendar</a>)</li>
-<li class="project-item">Fluentd (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/fluentd">Project calendar</a>)</li>
-<li class="project-item">Harbor (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/harbor">Project calendar</a>)</li>
-<li class="project-item">Helm (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/helm">Project calendar</a>)</li>
-<li class="project-item">Jaeger (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/jaeger">Project calendar</a>)</li>
-<li class="project-item">Kubernetes (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/k8s">Project calendar</a>)</li>
-<li class="project-item">Linkerd (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/linkerd">Project calendar</a>)</li>
-<li class="project-item">Prometheus (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/prometheus">Project calendar</a>)</li>
-<li class="project-item">Rook (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/rook">Project calendar</a>)</li>
-<li class="project-item">The Update Framework (TUF) (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/tuf">Project calendar</a>)</li>
-<li class="project-item">TiKV (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/tikv">Project calendar</a>)</li>
-<li class="project-item">Vitess (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/vitess">Project calendar</a>)</li>
-</ul>
-<h2>Incubating</h2>
-<ul class="project-list">
-<li class="project-item">Argo (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/argo">Project calendar</a>)</li>
-<li class="project-item">Backstage (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/backstage">Project calendar</a>)</li>
-<li class="project-item">Buildpacks (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/buildpacks">Project calendar</a>)</li>
-<li class="project-item">CNI (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/cni">Project calendar</a>)</li>
-<li class="project-item">CRI-O (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/cri-o">Project calendar</a>)</li>
-<li class="project-item">Chaos Mesh (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/ChaosMesh">Project calendar</a>)</li>
-<li class="project-item">Cilium (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/cilium">Project calendar</a>)</li>
-<li class="project-item">CloudEvents (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/cloudevents">Project calendar</a>)</li>
-<li class="project-item">Contour (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/contour">Project calendar</a>)</li>
-<li class="project-item">Cortex (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/cortex">Project calendar</a>)</li>
-<li class="project-item">Crossplane (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/crossplane">Project calendar</a>)</li>
-<li class="project-item">Dapr (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/dapr">Project calendar</a>)</li>
-<li class="project-item">Dragonfly (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/d7y">Project calendar</a>)</li>
-<li class="project-item">Falco (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/falco">Project calendar</a>)</li>
-<li class="project-item">Flux (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/fluxcd">Project calendar</a>)</li>
-<li class="project-item">Istio (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/istio">Project calendar</a>)</li>
-<li class="project-item">Keycloak (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/keycloak">Project calendar</a>)</li>
-<li class="project-item">Knative (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/knative">Project calendar</a>)</li>
-<li class="project-item">KubeEdge (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kubeedge">Project calendar</a>)</li>
-<li class="project-item">KubeVirt (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kubevirt">Project calendar</a>)</li>
-<li class="project-item">Kubeflow (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kubeflow">Project calendar</a>)</li>
-<li class="project-item">LitmusChaos (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/litmuschaos">Project calendar</a>)</li>
-<li class="project-item">Longhorn (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/longhorn">Project calendar</a>)</li>
-<li class="project-item">NATS (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/nats">Project calendar</a>)</li>
-<li class="project-item">Notary (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/notary">Project calendar</a>)</li>
-<li class="project-item">Open Policy Agent (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/openpolicyagent">Project calendar</a>)</li>
-<li class="project-item">OpenMetrics (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/openmetrics">Project calendar</a>)</li>
-<li class="project-item">OpenTelemetry (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/opentelemetry">Project calendar</a>)</li>
-<li class="project-item">Operator Framework Lifecycle Manager (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/operator-olm">Project calendar</a>)</li>
-<li class="project-item">Operator Framework SDK (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/operator-sdk">Project calendar</a>)</li>
-<li class="project-item">SPIFFE (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/spiffe">Project calendar</a>)</li>
-<li class="project-item">SPIRE (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/spire">Project calendar</a>)</li>
-<li class="project-item">Thanos (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/thanos">Project calendar</a>)</li>
-<li class="project-item">Volcano (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/Volcano">Project calendar</a>)</li>
-<li class="project-item">emissary-ingress (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/emissary">Project calendar</a>)</li>
-<li class="project-item">gRPC (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/grpc">Project calendar</a>)</li>
-<li class="project-item">in-toto (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/intoto">Project calendar</a>)</li>
-</ul>
-<h2>Sandbox</h2>
-<ul class="project-list">
-<li class="project-item">Aeraki Mesh (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/aerakimesh">Project calendar</a>)</li>
-<li class="project-item">Akri (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/akri">Project calendar</a>)</li>
-<li class="project-item">Antrea (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/antrea">Project calendar</a>)</li>
-<li class="project-item">Armada (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/armada">Project calendar</a>)</li>
-<li class="project-item">Artifact Hub (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/artifact-hub">Project calendar</a>)</li>
-<li class="project-item">Athenz (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/athenz">Project calendar</a>)</li>
-<li class="project-item">Atlantis (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/atlantis">Project calendar</a>)</li>
-<li class="project-item">BFE (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/BFE">Project calendar</a>)</li>
-<li class="project-item">Bank-Vaults (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/bank-vaults">Project calendar</a>)</li>
-<li class="project-item">Brigade (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/brigade">Project calendar</a>)</li>
-<li class="project-item">CNI-Genie (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/cni-genie">Project calendar</a>)</li>
-<li class="project-item">Cadence (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/cadence">Project calendar</a>)</li>
-<li class="project-item">Capsule (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/capsule">Project calendar</a>)</li>
-<li class="project-item">Carina (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/carina">Project calendar</a>)</li>
-<li class="project-item">Cartography (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/cartography">Project calendar</a>)</li>
-<li class="project-item">Carvel (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/carvel">Project calendar</a>)</li>
-<li class="project-item">ChaosBlade (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/chaosblade">Project calendar</a>)</li>
-<li class="project-item">ChubaoFS (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/chubaofs">Project calendar</a>)</li>
-<li class="project-item">Cloud Custodian (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/c7n">Project calendar</a>)</li>
-<li class="project-item">CloudNativePG (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/cloudnativepg">Project calendar</a>)</li>
-<li class="project-item">Clusternet (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/clusternet">Project calendar</a>)</li>
-<li class="project-item">Clusterpedia (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/clusterpedia">Project calendar</a>)</li>
-<li class="project-item">Confidential Containers (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/confcont">Project calendar</a>)</li>
-<li class="project-item">Connect (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/connect">Project calendar</a>)</li>
-<li class="project-item">ContainerSSH (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/containerssh">Project calendar</a>)</li>
-<li class="project-item">Copa (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/copacetic">Project calendar</a>)</li>
-<li class="project-item">Cozystack (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/cozystack">Project calendar</a>)</li>
-<li class="project-item">Curiefense (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/curiefense">Project calendar</a>)</li>
-<li class="project-item">Curve (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/curve">Project calendar</a>)</li>
-<li class="project-item">DevSpace (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/devspace">Project calendar</a>)</li>
-<li class="project-item">Devfile (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/devfile">Project calendar</a>)</li>
-<li class="project-item">Devstream (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/devstream">Project calendar</a>)</li>
-<li class="project-item">Dex (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/dex">Project calendar</a>)</li>
-<li class="project-item">Distribution (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/cncf-distribution">Project calendar</a>)</li>
-<li class="project-item">Drasi (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/drasi">Project calendar</a>)</li>
-<li class="project-item">Eraser (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/eraser">Project calendar</a>)</li>
-<li class="project-item">External Secrets Operator (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/externalsecretsoperator">Project calendar</a>)</li>
-<li class="project-item">FabEdge (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/fabedge">Project calendar</a>)</li>
-<li class="project-item">Flatcar (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/flatcar">Project calendar</a>)</li>
-<li class="project-item">Fluid Project (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/fluid">Project calendar</a>)</li>
-<li class="project-item">Fonio (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/ingraind">Project calendar</a>)</li>
-<li class="project-item">Headlamp (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/headlamp">Project calendar</a>)</li>
-<li class="project-item">Hexa (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/hexa">Project calendar</a>)</li>
-<li class="project-item">HwameiStor (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/hwameistor">Project calendar</a>)</li>
-<li class="project-item">Hyperlight (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/hyperlight">Project calendar</a>)</li>
-<li class="project-item">Inclavare Containers (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/inclavarecontainers">Project calendar</a>)</li>
-<li class="project-item">Inspektor Gadget (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/inspektorgadget">Project calendar</a>)</li>
-<li class="project-item">K8sGPT (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/k8sgpt">Project calendar</a>)</li>
-<li class="project-item">K8up (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/k8up">Project calendar</a>)</li>
-<li class="project-item">KCL (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kcl">Project calendar</a>)</li>
-<li class="project-item">KEDA (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/KEDA">Project calendar</a>)</li>
-<li class="project-item">KSail (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/ksail">Project calendar</a>)</li>
-<li class="project-item">KUDO (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kudo">Project calendar</a>)</li>
-<li class="project-item">Kairos (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kairos">Project calendar</a>)</li>
-<li class="project-item">Kanister (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kanister">Project calendar</a>)</li>
-<li class="project-item">Kepimetheus (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kepimetheus">Project calendar</a>)</li>
-<li class="project-item">Kepler (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kepler">Project calendar</a>)</li>
-<li class="project-item">Keptn (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/keptn">Project calendar</a>)</li>
-<li class="project-item">Keylime (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/keylime">Project calendar</a>)</li>
-<li class="project-item">KitOps (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kitops">Project calendar</a>)</li>
-<li class="project-item">Kmesh (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kmesh">Project calendar</a>)</li>
-<li class="project-item">Konveyor (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/konveyor">Project calendar</a>)</li>
-<li class="project-item">Koordinator (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/koordinator">Project calendar</a>)</li>
-<li class="project-item">Krator (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/krator">Project calendar</a>)</li>
-<li class="project-item">Krustlet (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/krustlet">Project calendar</a>)</li>
-<li class="project-item">Kuadrant (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kuadrant">Project calendar</a>)</li>
-<li class="project-item">Kuasar (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kuasar">Project calendar</a>)</li>
-<li class="project-item">Kube-OVN (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kube-ovn">Project calendar</a>)</li>
-<li class="project-item">KubeArmor (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kubearmor">Project calendar</a>)</li>
-<li class="project-item">KubeDL (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kubedl">Project calendar</a>)</li>
-<li class="project-item">KubeFleet (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kubefleet">Project calendar</a>)</li>
-<li class="project-item">KubeSlice (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kubeslice">Project calendar</a>)</li>
-<li class="project-item">KubeStellar (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kubestellar">Project calendar</a>)</li>
-<li class="project-item">KubeVela (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kubevela">Project calendar</a>)</li>
-<li class="project-item">Kubean (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kubean">Project calendar</a>)</li>
-<li class="project-item">Kubeclipper (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kubeclipper">Project calendar</a>)</li>
-<li class="project-item">Kuberhealthy (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kuberhealthy">Project calendar</a>)</li>
-<li class="project-item">Kubernetes AI Toolchain Operator (KAITO) (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kaito">Project calendar</a>)</li>
-<li class="project-item">Kubescape (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kubescape">Project calendar</a>)</li>
-<li class="project-item">Kuma (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kuma">Project calendar</a>)</li>
-<li class="project-item">Kured (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kured">Project calendar</a>)</li>
-<li class="project-item">Kyverno (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kyverno">Project calendar</a>)</li>
-<li class="project-item">Lima (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/lima">Project calendar</a>)</li>
-<li class="project-item">Logging Operator (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/logging-operator">Project calendar</a>)</li>
-<li class="project-item">LoxiLB (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/loxilb">Project calendar</a>)</li>
-<li class="project-item">Merbridge (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/merbridge">Project calendar</a>)</li>
-<li class="project-item">Meshery (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/meshery">Project calendar</a>)</li>
-<li class="project-item">MetalLB (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/metallb">Project calendar</a>)</li>
-<li class="project-item">Microcks (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/microcks">Project calendar</a>)</li>
-<li class="project-item">ModelPack (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/modelpack">Project calendar</a>)</li>
-<li class="project-item">Network Service Mesh (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/nsm">Project calendar</a>)</li>
-<li class="project-item">Nocalhost (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/nocalhost">Project calendar</a>)</li>
-<li class="project-item">ORAS (OCI Registry as Storage) (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/oras">Project calendar</a>)</li>
-<li class="project-item">OVN-Kubernetes (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/ovn-kubernetes">Project calendar</a>)</li>
-<li class="project-item">Open Cluster Management (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/openclustermanagement">Project calendar</a>)</li>
-<li class="project-item">Open Policy Registry (OPCR) (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/opcr">Project calendar</a>)</li>
-<li class="project-item">Open Service Mesh (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/OSM">Project calendar</a>)</li>
-<li class="project-item">OpenCost (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/opencost">Project calendar</a>)</li>
-<li class="project-item">OpenEBS (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/openebs">Project calendar</a>)</li>
-<li class="project-item">OpenELB (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/openelb">Project calendar</a>)</li>
-<li class="project-item">OpenFGA (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/openfga">Project calendar</a>)</li>
-<li class="project-item">OpenFeature (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/openfeature">Project calendar</a>)</li>
-<li class="project-item">OpenFunction (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/openfunction">Project calendar</a>)</li>
-<li class="project-item">OpenGitOps (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/gitops-wg">Project calendar</a>)</li>
-<li class="project-item">OpenKruise (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/openkruise">Project calendar</a>)</li>
-<li class="project-item">OpenTofu (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/opentf">Project calendar</a>)</li>
-<li class="project-item">OpenYurt (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/openyurt">Project calendar</a>)</li>
-<li class="project-item">PARSEC (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/parsec">Project calendar</a>)</li>
-<li class="project-item">Paralus (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/paralus">Project calendar</a>)</li>
-<li class="project-item">Perses (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/perses">Project calendar</a>)</li>
-<li class="project-item">PipeCD (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/pipecd">Project calendar</a>)</li>
-<li class="project-item">Piraeus-Datastore (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/piraeus-datastore">Project calendar</a>)</li>
-<li class="project-item">Pixie (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/pixie">Project calendar</a>)</li>
-<li class="project-item">Podman Container Tools (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/podman-container-tools">Project calendar</a>)</li>
-<li class="project-item">Podman Desktop (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/podman-desktop">Project calendar</a>)</li>
-<li class="project-item">Porter (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/porter">Project calendar</a>)</li>
-<li class="project-item">Pravega (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/pravega">Project calendar</a>)</li>
-<li class="project-item">Radius (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/radius">Project calendar</a>)</li>
-<li class="project-item">Ratify (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/ratify">Project calendar</a>)</li>
-<li class="project-item">Runme Notebooks (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/runme-notebooks">Project calendar</a>)</li>
-<li class="project-item">SOPS (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/sops">Project calendar</a>)</li>
-<li class="project-item">SchemaHero (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/schemahero">Project calendar</a>)</li>
-<li class="project-item">Score (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/score">Project calendar</a>)</li>
-<li class="project-item">Sermant (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/sermant">Project calendar</a>)</li>
-<li class="project-item">Serverless Devs (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/serverlessdevs">Project calendar</a>)</li>
-<li class="project-item">Serverless Workflow Specification (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/serverlessworkflow">Project calendar</a>)</li>
-<li class="project-item">Service Mesh Interface (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/smi">Project calendar</a>)</li>
-<li class="project-item">Service Mesh Performance (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/service-mesh-performance">Project calendar</a>)</li>
-<li class="project-item">Shipwright (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/shipwright">Project calendar</a>)</li>
-<li class="project-item">SlimFaaS (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/slimfaas">Project calendar</a>)</li>
-<li class="project-item">SlimToolkit (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/slimtoolkit">Project calendar</a>)</li>
-<li class="project-item">Spiderpool (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/spiderpool">Project calendar</a>)</li>
-<li class="project-item">Spin (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/spin">Project calendar</a>)</li>
-<li class="project-item">Strimzi (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/strimzi">Project calendar</a>)</li>
-<li class="project-item">Submariner (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/submariner">Project calendar</a>)</li>
-<li class="project-item">SuperEdge (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/superedge">Project calendar</a>)</li>
-<li class="project-item">Telepresence (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/telepresence">Project calendar</a>)</li>
-<li class="project-item">Teller (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/teller">Project calendar</a>)</li>
-<li class="project-item">Tinkerbell (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/tinkerbell">Project calendar</a>)</li>
-<li class="project-item">Tokenetes (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/tratteria">Project calendar</a>)</li>
-<li class="project-item">Tremor (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/tremor">Project calendar</a>)</li>
-<li class="project-item">TrestleGRC (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/trestlegrc">Project calendar</a>)</li>
-<li class="project-item">Trickster (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/trickster">Project calendar</a>)</li>
-<li class="project-item">VS Code Kubernetes Tools (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/vscodekubernetestools">Project calendar</a>)</li>
-<li class="project-item">Vineyard (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/vineyard">Project calendar</a>)</li>
-<li class="project-item">Virtual Kubelet (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/virtualkubelet">Project calendar</a>)</li>
-<li class="project-item">WasmEdge Runtime (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/wasmedge-runtime">Project calendar</a>)</li>
-<li class="project-item">Xline (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/xline">Project calendar</a>)</li>
-<li class="project-item">Yoke (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/yoke">Project calendar</a>)</li>
-<li class="project-item">Youki (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/youki">Project calendar</a>)</li>
-<li class="project-item">bootc (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/bootc">Project calendar</a>)</li>
-<li class="project-item">bpfman (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/bpfman">Project calendar</a>)</li>
-<li class="project-item">cdk8s (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/cdk8s">Project calendar</a>)</li>
-<li class="project-item">cert-manager (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/cert-manager">Project calendar</a>)</li>
-<li class="project-item">composefs (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/composefs">Project calendar</a>)</li>
-<li class="project-item">container2wasm (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/container2wasm">Project calendar</a>)</li>
-<li class="project-item">deploy-sh (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/deploy-sh">Project calendar</a>)</li>
-<li class="project-item">easegress (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/easegress">Project calendar</a>)</li>
-<li class="project-item">interLink (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/interlink">Project calendar</a>)</li>
-<li class="project-item">joylive-agent (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/joylive-agent">Project calendar</a>)</li>
-<li class="project-item">k0s (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/k0s">Project calendar</a>)</li>
-<li class="project-item">k3s (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/k3s">Project calendar</a>)</li>
-<li class="project-item">k8gb (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/k8gb">Project calendar</a>)</li>
-<li class="project-item">kagent (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kagent">Project calendar</a>)</li>
-<li class="project-item">karmada (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/karmada">Project calendar</a>)</li>
-<li class="project-item">kcp (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kcp">Project calendar</a>)</li>
-<li class="project-item">kgateway (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kgateway">Project calendar</a>)</li>
-<li class="project-item">ko (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/ko">Project calendar</a>)</li>
-<li class="project-item">kpt (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kpt">Project calendar</a>)</li>
-<li class="project-item">krkn (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/krkn">Project calendar</a>)</li>
-<li class="project-item">kube-burner (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kube-burner">Project calendar</a>)</li>
-<li class="project-item">kube-rs (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kube-rs">Project calendar</a>)</li>
-<li class="project-item">kube-vip (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kube-vip">Project calendar</a>)</li>
-<li class="project-item">kubewarden (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/kubewarden">Project calendar</a>)</li>
-<li class="project-item">metal3-io (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/metal3">Project calendar</a>)</li>
-<li class="project-item">openGemini (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/opengemini">Project calendar</a>)</li>
-<li class="project-item">sealer (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/sealer">Project calendar</a>)</li>
-<li class="project-item">skooner (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/k8dash">Project calendar</a>)</li>
-<li class="project-item">stacker (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/stacker">Project calendar</a>)</li>
-<li class="project-item">test (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/test">Project calendar</a>)</li>
-<li class="project-item">urunc (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/urunc">Project calendar</a>)</li>
-<li class="project-item">wasmCloud (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/wasmcloud">Project calendar</a>)</li>
-<li class="project-item">werf (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/werf">Project calendar</a>)</li>
-<li class="project-item">xRegistry (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/xregistry">Project calendar</a>)</li>
-<li class="project-item">zot (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/zot">Project calendar</a>)</li>
-</ul>
+EOF
 
+    # Loop to fetch data page by page
+    while true; do
+        # Construct the URL with offset and limit (pageSize) parameters
+        CURRENT_API_URL="${BASE_API_URL}?offset=${OFFSET}&limit=${PAGE_SIZE}"
+
+        # Fetch data for the current page
+        RESPONSE=$(curl -sS -H "Authorization: Bearer $TOKEN" "$CURRENT_API_URL")
+
+        # Basic error check for API response
+        if ! echo "$RESPONSE" | jq -e '.Data' > /dev/null 2>&1; then
+            echo "Error: Invalid JSON response or 'Data' array not found for offset $OFFSET. Stopping." >&2
+            break
+        fi
+
+        # Get count of projects on the current API page
+        PROJECTS_RECEIVED_ON_PAGE=$(echo "$RESPONSE" | jq '.Data | length')
+
+        # If no projects received, we've reached the end of pagination
+        if [ "$PROJECTS_RECEIVED_ON_PAGE" -eq 0 ]; then
+            break
+        fi
+
+        # Filter projects by Foundation ID and extract desired fields, including ProjectLogo and RepositoryURL.
+        FILTERED_JSON_STREAM=$(echo "$RESPONSE" | jq -c '.Data[] | select(.Foundation.ID == "a0941000002wBz4AAE") | {Name: .Name, Slug: .Slug, Category: .Category, ProjectLogo: .ProjectLogo, RepositoryURL: .RepositoryURL}')
+        echo "$FILTERED_JSON_STREAM"
+
+        # Update the total count of projects that passed the *initial* filter (Foundation ID)
+        # This count reflects all projects sent to the HTML generator, regardless of category.
+        CURRENT_PAGE_FILTERED_COUNT=$(echo "$FILTERED_JSON_STREAM" | wc -l)
+        PROJECTS_LISTED_COUNT=$((PROJECTS_LISTED_COUNT + CURRENT_PAGE_FILTERED_COUNT))
+
+        # Increment offset for the next API call
+        OFFSET=$((OFFSET + PROJECTS_RECEIVED_ON_PAGE))
+
+        # Small delay to respect API rate limits
+        sleep 0.2
+    done |
+    # Pipe ALL collected JSON objects (filtered by Foundation ID) to the final jq command.
+    # This jq command will apply the category filtering/sorting and generate the HTML body content.
+    jq -n -r "$JQ_HTML_PROCESSOR"
+
+    # Print the HTML footer
+    cat <<EOF
 </body>
 </html>
+EOF
+} > "$OUTPUT_HTML_FILE" # Redirect all output of this block to the HTML file
+
+echo "--------------------------------------------------------------------------"
+echo "Finished fetching projects and generating HTML."
+echo "Total projects matching Foundation ID filter (before category filtering for HTML): $PROJECTS_LISTED_COUNT"
+echo "HTML file generated: $OUTPUT_HTML_FILE"
