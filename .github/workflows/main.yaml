@@ -1,0 +1,9 @@
+on:
+  # 1. Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+  # 2. Triggers the workflow automatically on a schedule
+  schedule:
+    # This is a CRON expression that means "at midnight UTC every day"
+    # which satisfies the "every 24 hours" requirement.
+    - cron: '0 0 * * *'
