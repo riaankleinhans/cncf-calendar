@@ -1,9 +1,48 @@
+# .github/workflows/generate_page.yml
+name: Generate and Deploy CNCF Project Page
+
+# MODIFIED TRIGGER BLOCK
 on:
-  # 1. Allows you to run this workflow manually from the Actions tab
+  # Allows running the job manually from the GitHub Actions tab.
   workflow_dispatch:
 
-  # 2. Triggers the workflow automatically on a schedule
+  # Run the job automatically every day at midnight UTC.
   schedule:
-    # This is a CRON expression that means "at midnight UTC every day"
-    # which satisfies the "every 24 hours" requirement.
     - cron: '0 0 * * *'
+
+# Grant permissions for the workflow to write to GitHub Pages.
+permissions:
+  pages: write
+  id-token: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      # 1. Check out the repository code to access our action files.
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # 2. Run our custom action to generate the index.html file.
+      - name: Generate Project Page
+        id: build-step
+        uses: ./ # This tells the job to use the action in the current repo.
+        with:
+          # Securely provide the LFX token from a repository secret.
+          lfx-token: ${{ secrets.LFX_TOKEN }}
+
+      # 3. Upload the generated HTML file as a build artifact for deployment.
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          # The path comes from the output of our custom action.
+          path: ${{ steps.build-step.outputs.html-file-path }}
+
+      # 4. Deploy the artifact to GitHub Pages.
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
