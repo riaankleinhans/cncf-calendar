@@ -1,7 +1,6 @@
-# .github/workflows/generate_page.yml
-name: Generate and Deploy CNCF Project Page
+# .github/workflows/main.yaml
+name: Generate and Propose CNCF Project Page Update
 
-# MODIFIED TRIGGER BLOCK
 on:
   # Allows running the job manually from the GitHub Actions tab.
   workflow_dispatch:
@@ -10,39 +9,44 @@ on:
   schedule:
     - cron: '0 0 * * *'
 
-# Grant permissions for the workflow to write to GitHub Pages.
+# 1. UPDATE PERMISSIONS: Grant permissions to create branches and pull requests.
 permissions:
-  pages: write
-  id-token: write
+  contents: write       # To create commits and branches
+  pull-requests: write  # To create pull requests
 
 jobs:
-  build-and-deploy:
+  build-and-propose-update:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-
     steps:
-      # 1. Check out the repository code to access our action files.
+      # 2. CHECKOUT CODE: Checks out your repository's code.
       - name: Check out repository
         uses: actions/checkout@v4
 
-      # 2. Run our custom action to generate the index.html file.
+      # 3. GENERATE PAGE: Runs your custom action to create index.html.
       - name: Generate Project Page
         id: build-step
-        uses: ./ # This tells the job to use the action in the current repo.
+        uses: ./calendar_update
         with:
-          # Securely provide the LFX token from a repository secret.
           lfx-token: ${{ secrets.LFX_TOKEN }}
 
-      # 3. Upload the generated HTML file as a build artifact for deployment.
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+      # 4. CREATE PULL REQUEST: Commits index.html and opens a PR.
+      - name: Create Pull Request with updated index.html
+        uses: peter-evans/create-pull-request@v6
         with:
-          # The path comes from the output of our custom action.
-          path: ${{ steps.build-step.outputs.html-file-path }}
-
-      # 4. Deploy the artifact to GitHub Pages.
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          # Use the default GITHUB_TOKEN for authentication.
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
+          # Configure the commit and PR details.
+          commit-message: "docs: Update CNCF project calendar page"
+          title: "Automated CNCF Calendar Update"
+          body: |
+            This is an auto-generated PR with the latest project calendar updates.
+            
+            Please review the changes to `index.html` and merge if they look correct.
+          
+          # Define the branch name for the PR.
+          branch: "update/cncf-calendar-${{ github.run_id }}"
+          
+          # Optional: Add labels and assignees to the PR.
+          labels: automated, documentation
+          # assignees: your-github-username
