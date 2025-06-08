@@ -66,14 +66,22 @@ map(
         a { color: #3498db; text-decoration: none; }
         a:hover { text-decoration: underline; color: #2980b9; }
         #search-box { width: 100%; padding: 10px; margin-bottom: 20px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; font-size: 1.1em; }
-        .project-logo { width: 50px; height: 50px; vertical-align: middle; margin-right: 15px; object-fit: contain; }
+
+        /* --- CSS FOR PROJECT LOGOS HAS BEEN UPDATED TO 200x200 --- */
+        .project-logo {
+            width: 200px;
+            height: 200px;
+            vertical-align: middle;
+            margin-right: 15px;
+            object-fit: contain;
+        }
     </style>
 </head>
 <body>
     <h1>CNCF Project Calendars</h1>
     <h2>Main Calendars</h2>
     <ul>
-        <li><img src="https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/cncf.svg" alt="CNCF Logo" class="project-logo"> CNCF Main calendar (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/cncf">Project calendar</a>)</li>
+        <li><img src="https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/cncf.svg" alt="CNCF Logo" width="200" height="200" style="vertical-align: middle; margin-right: 8px; object-fit: contain;"> CNCF Main calendar (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/cncf">Project calendar</a>)</li>
     </ul>
     <input type="text" id="search-box" onkeyup="filterProjects()" placeholder="Search for projects...">
     <script>
