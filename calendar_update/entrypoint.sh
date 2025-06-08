@@ -5,7 +5,6 @@
 set -e
 
 # 1. TOKEN VALIDATION: Read the token from an environment variable.
-# The GitHub workflow will set this LFX_TOKEN variable.
 if [ -z "$LFX_TOKEN" ]; then
     echo "Error: The LFX_TOKEN environment variable is not set." >&2
     exit 1
@@ -13,7 +12,8 @@ fi
 
 # API and HTML settings
 BASE_API_URL="https://api-gw.platform.linuxfoundation.org/project-service/v1/projects"
-OUTPUT_HTML_FILE="index.html" # The output file will be created in the workspace.
+# Ensure the output file is created at the root of the repository checkout.
+OUTPUT_HTML_FILE="${GITHUB_WORKSPACE}/index.html"
 PAGE_SIZE=100
 OFFSET=0
 PROJECTS_LISTED_COUNT=0
@@ -22,7 +22,6 @@ echo "Fetching projects, filtering, sorting, and generating HTML..."
 echo "--------------------------------------------------------------------------"
 
 # 2. JQ PROCESSOR: This remains unchanged from your original script.
-# It contains the core logic for filtering, sorting, and generating HTML.
 JQ_HTML_PROCESSOR='
 def category_rank:
   if .Category == "TAG" then 1
@@ -50,7 +49,6 @@ map(
 '
 
 # 3. HTML GENERATION: This block pipes all output to the final HTML file.
-# It is also mostly unchanged.
 {
     # Print the HTML header and search box
     cat <<EOF
