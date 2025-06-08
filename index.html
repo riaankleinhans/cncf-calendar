@@ -7,75 +7,47 @@
         body { font-family: Arial, sans-serif; margin: 20px; line-height: 1.6; background-color: #f4f7f6; }
         h1 { color: #2c3e50; text-align: center; margin-bottom: 30px; font-size: 2.5em; padding-bottom: 10px; border-bottom: 3px solid #3498db;}
         h2 { color: #34495e; border-bottom: 1px solid #bdc3c7; padding-bottom: 8px; margin-top: 30px; font-size: 1.8em; }
-        ul { list-style-type: none; padding: 0; margin-left: 20px; }
-        li { margin-bottom: 12px; font-size: 1.1em; background-color: #ffffff; padding: 10px 15px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        ul { list-style-type: none; padding: 0; }
+        li { margin-bottom: 12px; font-size: 1.1em; background-color: #ffffff; padding: 10px 15px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); display: flex; align-items: center; }
         a { color: #3498db; text-decoration: none; }
         a:hover { text-decoration: underline; color: #2980b9; }
-        #search-box {
-            width: 100%;
-            padding: 10px;
-            margin-bottom: 20px;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-            box-sizing: border-box; /* Include padding in width */
-            font-size: 1.1em;
-        }
-        /* Style for project logos */
-        .project-logo {
-            width: 110px;  /* Set fixed width for project logos */
-            height: 110px; /* Set fixed height for project logos */
-            vertical-align: middle; /* Align with text */
-            margin-right: 8px; /* Space between logo and text */
-            object-fit: contain; /* Ensure image fits within bounds without cropping */
-        }
+        #search-box { width: 100%; padding: 10px; margin-bottom: 20px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; font-size: 1.1em; }
+        .project-logo { width: 50px; height: 50px; vertical-align: middle; margin-right: 15px; object-fit: contain; }
     </style>
 </head>
 <body>
     <h1>CNCF Project Calendars</h1>
-
     <h2>Main Calendars</h2>
     <ul>
-        <li><img src="https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/cncf.svg" alt="CNCF Logo" width="200" height="200" style="vertical-align: middle; margin-right: 8px; object-fit: contain;"> CNCF Main calendar (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/cncf">Project calendar</a>)</li>
+        <li><img src="https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/cncf.svg" alt="CNCF Logo" class="project-logo"> CNCF Main calendar (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/cncf">Project calendar</a>)</li>
     </ul>
-
     <input type="text" id="search-box" onkeyup="filterProjects()" placeholder="Search for projects...">
-
     <script>
         function filterProjects() {
             let input = document.getElementById('search-box');
             let filter = input.value.toUpperCase();
-            let projectLists = document.getElementsByClassName('project-list'); // Get all <ul> with this class
-
+            let projectLists = document.getElementsByClassName('project-list');
             for (let i = 0; i < projectLists.length; i++) {
                 let ul = projectLists[i];
-                let li = ul.getElementsByClassName('project-item'); // Get all <li> within this <ul>
-
+                let li = ul.getElementsByClassName('project-item');
                 let categoryHasVisibleProjects = false;
-
                 for (let j = 0; j < li.length; j++) {
                     let projectItem = li[j];
                     let textValue = projectItem.textContent || projectItem.innerText;
                     if (textValue.toUpperCase().indexOf(filter) > -1) {
-                        projectItem.style.display = ""; // Show the project item
+                        projectItem.style.display = "flex";
                         categoryHasVisibleProjects = true;
                     } else {
-                        projectItem.style.display = "none"; // Hide the project item
+                        projectItem.style.display = "none";
                     }
                 }
-
-                // Show/hide category heading (h2) based on whether any projects are visible in its list
-                let h2 = ul.previousElementSibling; // h2 is the element right before the ul
+                let h2 = ul.previousElementSibling;
                 if (h2 && h2.tagName === 'H2') {
-                    if (categoryHasVisibleProjects) {
-                        h2.style.display = "";
-                    } else {
-                        h2.style.display = "none";
-                    }
+                    h2.style.display = categoryHasVisibleProjects ? "" : "none";
                 }
             }
         }
     </script>
-
 <h2>TAG</h2>
 <ul class="project-list">
 <li class="project-item"><img src="https://lfx-cdn-prod.s3.us-east-1.amazonaws.com/project-artifacts/tag-developer-experience/tag-developer-experience-logo.svg?v=1746544274972" alt="TAG Developer Experience Logo" class="project-logo"> TAG Developer Experience (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/tag-developer-experience">Project calendar</a>)</li>
@@ -136,8 +108,8 @@
 <li class="project-item"><img src="https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/openpolicyagent.svg" alt="Open Policy Agent Logo" class="project-logo"> Open Policy Agent (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/openpolicyagent">Project calendar</a>) (<a href="https://github.com/open-policy-agent">Project code</a>)</li>
 <li class="project-item"><img src="https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/openmetrics.svg" alt="OpenMetrics Logo" class="project-logo"> OpenMetrics (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/openmetrics">Project calendar</a>)</li>
 <li class="project-item"><img src="https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/opentelemetry.svg" alt="OpenTelemetry Logo" class="project-logo"> OpenTelemetry (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/opentelemetry">Project calendar</a>) (<a href="https://github.com/open-telemetry/opentelemetry.io">Project code</a>)</li>
+<li class="project-item"><img src="https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/operator-sdk.svg" alt="Operator Framework Logo" class="project-logo"> Operator Framework (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/operator-sdk">Project calendar</a>) (<a href="https://github.com/operator-framework/operator-sdk">Project code</a>)</li>
 <li class="project-item"><img src="https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/operator-olm.svg" alt="Operator Framework Lifecycle Manager Logo" class="project-logo"> Operator Framework Lifecycle Manager (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/operator-olm">Project calendar</a>) (<a href="https://github.com/operator-framework/operator-lifecycle-manager">Project code</a>)</li>
-<li class="project-item"><img src="https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/operator-sdk.svg" alt="Operator Framework SDK Logo" class="project-logo"> Operator Framework SDK (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/operator-sdk">Project calendar</a>) (<a href="https://github.com/operator-framework/operator-sdk">Project code</a>)</li>
 <li class="project-item"><img src="https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/spiffe.svg" alt="SPIFFE Logo" class="project-logo"> SPIFFE (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/spiffe">Project calendar</a>) (<a href="https://github.com/spiffe">Project code</a>)</li>
 <li class="project-item"><img src="https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/spire.svg" alt="SPIRE Logo" class="project-logo"> SPIRE (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/spire">Project calendar</a>)</li>
 <li class="project-item"><img src="https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/thanos.svg" alt="Thanos Logo" class="project-logo"> Thanos (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/thanos">Project calendar</a>) (<a href="https://github.com/thanos-io/thanos">Project code</a>)</li>
@@ -328,7 +300,7 @@
 <li class="project-item"><img src="https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/k8dash.svg" alt="skooner Logo" class="project-logo"> skooner (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/k8dash">Project calendar</a>)</li>
 <li class="project-item"><img src="https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/cncf.svg" alt="stacker Logo" class="project-logo"> stacker (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/stacker">Project calendar</a>) (<a href="https://github.com/project-stacker">Project code</a>)</li>
 <li class="project-item"><img src="https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/cncf.svg" alt="test Logo" class="project-logo"> test (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/test">Project calendar</a>)</li>
-<li class="project-item"><img src="https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/cncf.svg" alt="urunc Logo" class="project-logo"> urunc (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/urunc">Project calendar</a>) (<a href="https://github.com/nubificus/urunc">Project code</a>)</li>
+<li class="project-item"><img src="https://lfx-cdn-prod.s3.us-east-1.amazonaws.com/project-artifacts/urunc/urunc-logo.svg?v=1748883013645" alt="urunc Logo" class="project-logo"> urunc (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/urunc">Project calendar</a>) (<a href="https://github.com/urunc-dev">Project code</a>)</li>
 <li class="project-item"><img src="https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/wasmCloud.svg" alt="wasmCloud Logo" class="project-logo"> wasmCloud (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/wasmcloud">Project calendar</a>) (<a href="https://github.com/wasmCloud">Project code</a>)</li>
 <li class="project-item"><img src="https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/werf.svg" alt="werf Logo" class="project-logo"> werf (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/werf">Project calendar</a>) (<a href="https://github.com/werf/werf">Project code</a>)</li>
 <li class="project-item"><img src="https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/cncf.svg" alt="xRegistry Logo" class="project-logo"> xRegistry (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/xregistry">Project calendar</a>) (<a href="https://github.com/xregistry">Project code</a>)</li>
