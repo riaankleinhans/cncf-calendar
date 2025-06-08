@@ -1,0 +1,22 @@
+name: 'Generate Project Webpage'
+description: 'Fetches project data from the LF API and generates a static HTML page.'
+
+inputs:
+  lfx-token:
+    description: 'The authentication token for the Linux Foundation API.'
+    required: true
+
+outputs:
+  html-file-path:
+    description: 'The path to the generated index.html file.'
+    value: ${{ steps.run-script.outputs.html_file }}
+
+runs:
+  using: 'composite'
+  steps:
+    - id: run-script
+      name: Run the entrypoint script
+      run: ${{ github.action_path }}/entrypoint.sh # This line works automatically
+      shell: bash
+      env:
+        LFX_TOKEN: ${{ inputs.lfx-token }}
