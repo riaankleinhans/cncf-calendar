@@ -38,4 +38,4 @@ jobs:
             
             Please review the changes to `index.html` and merge if they look correct.
           branch: "update/cncf-calendar-${{ github.run_id }}"
-          labels: automated, documentation
+        # labels: automated, documentation
