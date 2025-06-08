@@ -2,51 +2,40 @@
 name: Generate and Propose CNCF Project Page Update
 
 on:
-  # Allows running the job manually from the GitHub Actions tab.
   workflow_dispatch:
-
-  # Run the job automatically every day at midnight UTC.
   schedule:
     - cron: '0 0 * * *'
 
-# 1. UPDATE PERMISSIONS: Grant permissions to create branches and pull requests.
 permissions:
-  contents: write       # To create commits and branches
-  pull-requests: write  # To create pull requests
+  contents: write
+  pull-requests: write
 
 jobs:
   build-and-propose-update:
     runs-on: ubuntu-latest
     steps:
-      # 2. CHECKOUT CODE: Checks out your repository's code.
       - name: Check out repository
         uses: actions/checkout@v4
 
-      # 3. GENERATE PAGE: Runs your custom action to create index.html.
+      # --- ADD THIS NEW STEP ---
+      - name: Make entrypoint script executable
+        run: chmod +x ./calendar_update/entrypoint.sh
+
       - name: Generate Project Page
         id: build-step
         uses: ./calendar_update
         with:
           lfx-token: ${{ secrets.LFX_TOKEN }}
 
-      # 4. CREATE PULL REQUEST: Commits index.html and opens a PR.
       - name: Create Pull Request with updated index.html
         uses: peter-evans/create-pull-request@v6
         with:
-          # Use the default GITHUB_TOKEN for authentication.
           token: ${{ secrets.GITHUB_TOKEN }}
-          
-          # Configure the commit and PR details.
           commit-message: "docs: Update CNCF project calendar page"
           title: "Automated CNCF Calendar Update"
           body: |
             This is an auto-generated PR with the latest project calendar updates.
             
             Please review the changes to `index.html` and merge if they look correct.
-          
-          # Define the branch name for the PR.
           branch: "update/cncf-calendar-${{ github.run_id }}"
-          
-          # Optional: Add labels and assignees to the PR.
           labels: automated, documentation
-          # assignees: your-github-username
