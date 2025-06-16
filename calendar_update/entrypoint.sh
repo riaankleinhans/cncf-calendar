@@ -101,7 +101,8 @@ map(
 </style>
 </head>
 <body>
-    <h1>Main Calendar</h1>
+    <h1>CNCF Project Calendars</h1>
+    <h2>Main Calendar</h2>
     <ul>
         <li><img src="https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/cncf.svg" alt="CNCF Logo" width="200" height="200" style="vertical-align: middle; margin-right: 12px; object-fit: contain;"> CNCF Main calendar (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/cncf">Project calendar</a>)</li>
     </ul>
