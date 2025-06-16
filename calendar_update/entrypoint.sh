@@ -127,7 +127,7 @@ EOF
             break
         fi
 
-        FILTERED_JSON_STREAM=$(echo "$RESPONSE" | jq -c '.Data[] | select(.Foundation.ID == "a0941000002wBz4AAE") | {Name: .Name, Slug: .Slug, Category: .Category, ProjectLogo: .ProjectLogo, RepositoryURL: .RepositoryURL}')
+        FILTERED_JSON_STREAM=$(echo "$RESPONSE" | jq -c '.Data[] | select(.Foundation.ID == "a0941000002wBz4AAE" and .Status == "Active") | {Name: .Name, Slug: .Slug, Category: .Category, ProjectLogo: .ProjectLogo, RepositoryURL: .RepositoryURL}')
         echo "$FILTERED_JSON_STREAM"
 
         CURRENT_PAGE_FILTERED_COUNT=$(echo "$FILTERED_JSON_STREAM" | wc -l)
