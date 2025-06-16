@@ -4,24 +4,46 @@
     <title>CNCF Projects</title>
     <meta charset="utf-8">
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; line-height: 1.6; background-color: #f4f7f6; }
-        h1 { color: #2c3e50; text-align: center; margin-bottom: 30px; font-size: 2.5em; padding-bottom: 10px; border-bottom: 3px solid #3498db;}
-        h2 { color: #34495e; border-bottom: 1px solid #bdc3c7; padding-bottom: 8px; margin-top: 30px; font-size: 1.8em; }
-        ul { list-style-type: none; padding: 0; }
-        li { margin-bottom: 12px; font-size: 1.1em; background-color: #ffffff; padding: 10px 15px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); display: flex; align-items: center; }
-        a { color: #3498db; text-decoration: none; }
-        a:hover { text-decoration: underline; color: #2980b9; }
-        #search-box { width: 100%; padding: 10px; margin-bottom: 20px; border: 1px solid #ccc; border-radius: 5px; box-sizing: border-box; font-size: 1.1em; }
-
-        /* --- CSS FOR PROJECT LOGOS HAS BEEN UPDATED TO 200x200 --- */
-        .project-logo {
-            width: 200px;
-            height: 200px;
-            vertical-align: middle;
-            margin-right: 15px;
-            object-fit: contain;
-        }
-    </style>
+    body { font-family: Arial, sans-serif; margin: 20px; line-height: 1.6; background-color: #f4f7f6; }
+    h1 { color: #2c3e50; text-align: center; margin-bottom: 30px; font-size: 2.5em; padding-bottom: 10px; border-bottom: 3px solid #3498db;}
+    h2 { color: #34495e; border-bottom: 1px solid #bdc3c7; padding-bottom: 8px; margin-top: 30px; font-size: 1.8em; }
+    ul { list-style-type: none; padding: 0; margin-left: 20px; }
+    li {
+        margin-bottom: 5px;
+        font-size: 1.1em;
+        background-color: #ffffff;
+        padding: 5px 10px; /* Further reduced vertical and horizontal padding */
+        border-radius: 5px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    a { color: #3498db; text-decoration: none; }
+    a:hover { text-decoration: underline; color: #2980b9; }
+    #search-box {
+        width: 50%;
+        padding: 10px;
+        margin-bottom: 20px;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        box-sizing: border-box;
+        font-size: 1.1em;
+    }
+    /* Style for project logos */
+    .project-logo {
+        width: 60px;  /* Reduced logo width */
+        height: 60px; /* Reduced logo height to match width */
+        vertical-align: middle;
+        margin-right: 5px; /* Reduced space between logo and text */
+        object-fit: contain;
+    }
+    /* Specifically target the main CNCF calendar logo if it's too large */
+    .main-cncf-logo { /* Add this class to the CNCF main calendar img tag */
+        width: 60px !important; /* Make it consistent with project logos */
+        height: 60px !important;
+        vertical-align: middle;
+        margin-right: 8px;
+        object-fit: contain;
+    }
+</style>
 </head>
 <body>
     <h1>CNCF Project Calendars</h1>
