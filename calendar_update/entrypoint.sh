@@ -38,7 +38,8 @@ group_by(.Category) |
 sort_by(.[0].category_sort_key) |
 map(
     (.[0].Category) as $current_category_name |
-    "<h2>" + $current_category_name + "</h2>\n<ul class=\"project-list\">\n" +
+    (length) as $project_count |
+    "<h2>" + $current_category_name + " (" + ($project_count | tostring) + ")</h2>\n<ul class=\"project-list\">\n" +
     (map(
         "<li class=\"project-item\"><img src=\"" + ((.ProjectLogo | select(length > 0)) // "https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/cncf.svg") + "\" alt=\"" + .Name + " Logo\" class=\"project-logo\"> " + .Name + " (<a href=\"https://zoom-lfx.platform.linuxfoundation.org/meetings/" + (.Slug | @uri) + "\">Project calendar</a>)" +
         (if .RepositoryURL and (.RepositoryURL | length > 0) then " (<a href=\"" + .RepositoryURL + "\">Project code</a>)" else "" end) +
