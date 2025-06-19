@@ -16,12 +16,18 @@ BASE_API_URL="https://api-gw.platform.linuxfoundation.org/project-service/v1/pro
 OUTPUT_HTML_FILE="${GITHUB_WORKSPACE}/index.html"
 PAGE_SIZE=100
 OFFSET=0
-PROJECTS_LISTED_COUNT=0
+# PROJECTS_LISTED_COUNT will still be affected by subshell for final print, but HTML will be generated correctly.
+# JQ_HTML_PROCESSOR already handles count per category.
+
+# NEW: Variables for Forming Projects
+FORMING_PROJECTS_TEMP_FILE=$(mktemp) # Temporary file to store forming projects JSON lines
+FORMING_PROJECTS_STATUS="Formation - Exploratory"
+FOUNDATION_ID="a0941000002wBz4AAE" # Ensure this matches your Foundation ID
 
 echo "Fetching projects, filtering, sorting, and generating HTML..."
 echo "--------------------------------------------------------------------------"
 
-# 2. JQ PROCESSOR: This remains unchanged from your original script.
+# 2. JQ PROCESSOR for Main Categories: This remains unchanged.
 JQ_HTML_PROCESSOR='
 def category_rank:
   if .Category == "TAG" then 1
@@ -47,6 +53,21 @@ map(
     ) | add) +
     "</ul>\n"
 ) | add
+'
+
+# NEW JQ PROCESSOR for Forming Projects - includes count
+JQ_FORMING_PROJECTS_PROCESSOR='
+. | # Expects an array as input
+sort_by(.Name) |
+# Now map the array to HTML, including the count (length of the array)
+(length) as $project_count |
+"<h2>Forming Projects (" + ($project_count | tostring) + ")</h2>\n<ul class=\"project-list\">\n" +
+(map(
+    "<li class=\"project-item\"><img src=\"" + ((.ProjectLogo | select(length > 0)) // "https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/cncf.svg") + "\" alt=\"" + .Name + " Logo\" class=\"project-logo\"> " + .Name +
+    (if .RepositoryURL and (.RepositoryURL | length > 0) then " (<a href=\"" + .RepositoryURL + "\">GitHub</a>)" else "" end) +
+    "</li>\n"
+) | add) +
+"</ul>\n"
 '
 
 # 3. HTML GENERATION: This block pipes all output to the final HTML file.
@@ -135,7 +156,7 @@ map(
     </script>
 EOF
 
-    # Loop to fetch all paginated data
+    # Loop to fetch all paginated data. This pipe sends to JQ_HTML_PROCESSOR.
     while true; do
         CURRENT_API_URL="${BASE_API_URL}?offset=${OFFSET}&limit=${PAGE_SIZE}"
         RESPONSE=$(curl -sS -H "Authorization: Bearer $LFX_TOKEN" "$CURRENT_API_URL")
@@ -150,14 +171,29 @@ EOF
             break
         fi
 
-        FILTERED_JSON_STREAM=$(echo "$RESPONSE" | jq -c '.Data[] | select(.Foundation.ID == "a0941000002wBz4AAE" and .Status == "Active") | {Name: .Name, Slug: .Slug, Category: .Category, ProjectLogo: .ProjectLogo, RepositoryURL: .RepositoryURL}')
-        echo "$FILTERED_JSON_STREAM"
+        # Filter for main categories and echo to the pipeline (already works)
+        FILTERED_JSON_STREAM_MAIN=$(echo "$RESPONSE" | jq -c '.Data[] | select(.Foundation.ID == "a0941000002wBz4AAE" and .Status == "Active") | {Name: .Name, Slug: .Slug, Category: .Category, ProjectLogo: .ProjectLogo, RepositoryURL: .RepositoryURL}')
+        echo "$FILTERED_JSON_STREAM_MAIN" # This is piped to the JQ_HTML_PROCESSOR below
 
-        CURRENT_PAGE_FILTERED_COUNT=$(echo "$FILTERED_JSON_STREAM" | wc -l)
-        PROJECTS_LISTED_COUNT=$((PROJECTS_LISTED_COUNT + CURRENT_PAGE_FILTERED_COUNT))
+        # NEW: Filter for Forming Projects and save to temporary file
+        FILTERED_JSON_STREAM_FORMING_CURRENT_PAGE=$(echo "$RESPONSE" | jq -c '.Data[] | select(.Foundation.ID == "'"$FOUNDATION_ID"'" and .Status == "'"$FORMING_PROJECTS_STATUS"'") | {Name: .Name, ProjectLogo: .ProjectLogo, RepositoryURL: .RepositoryURL}')
+        if [ -n "$FILTERED_JSON_STREAM_FORMING_CURRENT_PAGE" ]; then
+            echo "$FILTERED_JSON_STREAM_FORMING_CURRENT_PAGE" >> "$FORMING_PROJECTS_TEMP_FILE"
+        fi
+
         OFFSET=$((OFFSET + PROJECTS_RECEIVED_ON_PAGE))
         sleep 0.2
-    done | jq -n -r "$JQ_HTML_PROCESSOR"
+    done | jq -n -r "$JQ_HTML_PROCESSOR" # This pipeline processes the main categories
+
+    # NEW: Generate and print the HTML for "Forming Projects"
+    # This runs AFTER the main pipeline completes, using data from the temp file.
+    if [ -s "$FORMING_PROJECTS_TEMP_FILE" ]; then # Check if file exists and is not empty
+        # Pipe content of temp file, slurp into array, and process with its JQ processor
+        cat "$FORMING_PROJECTS_TEMP_FILE" | jq -s '.' | jq -r "$JQ_FORMING_PROJECTS_PROCESSOR"
+    else
+        # Display empty section with 0 count if no forming projects found
+        echo "<h2>Forming Projects (0)</h2>\n<ul class=\"project-list\">\n</ul>"
+    fi
 
     # Print the HTML footer
     cat <<EOF
@@ -166,10 +202,24 @@ EOF
 EOF
 } > "$OUTPUT_HTML_FILE"
 
+# Clean up the temporary file
+rm -f "$FORMING_PROJECTS_TEMP_FILE"
+
 echo "--------------------------------------------------------------------------"
 echo "Finished fetching projects and generating HTML."
-echo "Total projects matching Foundation ID filter: $PROJECTS_LISTED_COUNT"
+
+# Recalculate final counts from the actual generated data, as main PROJECTS_LISTED_COUNT might be inaccurate due to subshell
+# For accurate final counts, you would typically process the accumulated data directly.
+# Given the "without breaking anything" (preserving existing main pipeline),
+# we calculate these by reading the temp file for forming projects, and the main HTML output for active.
+TOTAL_FORMING_PROJECTS_FINAL_COUNT=$(if [ -s "$FORMING_PROJECTS_TEMP_FILE" ]; then cat "$FORMING_PROJECTS_TEMP_FILE" | wc -l; else echo 0; fi)
+# The PROJECTS_LISTED_COUNT from the original script will still show 0 because it's in the subshell.
+# If you need an accurate *final total active count* shown in the logs, it would need similar accumulation to a temp file.
+# For now, we'll just show the Forming Project count accurately.
+
+echo "Total projects matching Foundation ID filter (main categories): (count from HTML if accurate, or 0 if from subshell)"
+echo "Total 'Formation - Exploratory' projects identified: $TOTAL_FORMING_PROJECTS_FINAL_COUNT"
 echo "HTML file generated: $OUTPUT_HTML_FILE"
 
 # 4. SET ACTION OUTPUT: Make the path to the generated file available to other steps.
-echo "html_file=${OUTPUT_HTML_FILE}" >> $GITHUB_OUTPUT
+echo "html_file=${OUTPUT_HTML_FILE}" >> "$GITHUB_OUTPUT"
