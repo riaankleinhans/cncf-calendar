@@ -16,12 +16,16 @@ BASE_API_URL="https://api-gw.platform.linuxfoundation.org/project-service/v1/pro
 OUTPUT_HTML_FILE="${GITHUB_WORKSPACE}/index.html"
 PAGE_SIZE=100
 OFFSET=0
-PROJECTS_LISTED_COUNT=0
+
+# Variables to accumulate all filtered JSON data in the main shell context
+MAIN_ACTIVE_PROJECTS_JSON_LINES=""
+FORMING_PROJECTS_JSON_LINES=""
+TOTAL_FORMING_PROJECTS_COUNT=0 # New counter for forming projects
 
 echo "Fetching projects, filtering, sorting, and generating HTML..."
 echo "--------------------------------------------------------------------------"
 
-# 2. JQ PROCESSOR: This remains unchanged from your original script.
+# 2. JQ PROCESSOR: This remains unchanged for main categories.
 JQ_HTML_PROCESSOR='
 def category_rank:
   if .Category == "TAG" then 1
@@ -49,7 +53,22 @@ map(
 ) | add
 '
 
-# 3. HTML GENERATION: This block pipes all output to the final HTML file.
+# NEW JQ PROCESSOR for Forming Projects - includes count
+JQ_FORMING_PROJECTS_PROCESSOR='
+. | # Expects an array as input
+sort_by(.Name) |
+# Now map the array to HTML, including the count (length of the array)
+(length) as $project_count |
+"<h2>Forming Projects (" + ($project_count | tostring) + ")</h2>\n<ul class=\"project-list\">\n" +
+(map(
+    "<li class=\"project-item\"><img src=\"" + ((.ProjectLogo | select(length > 0)) // "https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/cncf.svg") + "\" alt=\"" + .Name + " Logo\" class=\"project-logo\"> " + .Name +
+    (if .RepositoryURL and (.RepositoryURL | length > 0) then " (<a href=\"" + .RepositoryURL + "\">GitHub</a>)" else "" end) +
+    "</li>\n"
+) | add) +
+"</ul>\n"
+'
+
+# 3. HTML GENERATION: This block now handles all output to the final HTML file.
 {
     # Print the HTML header and search box
     cat <<EOF
@@ -135,7 +154,7 @@ map(
     </script>
 EOF
 
-    # Loop to fetch all paginated data
+    # --- Data Collection Loop: Accumulates ALL data into main shell variables ---
     while true; do
         CURRENT_API_URL="${BASE_API_URL}?offset=${OFFSET}&limit=${PAGE_SIZE}"
         RESPONSE=$(curl -sS -H "Authorization: Bearer $LFX_TOKEN" "$CURRENT_API_URL")
@@ -150,14 +169,40 @@ EOF
             break
         fi
 
-        FILTERED_JSON_STREAM=$(echo "$RESPONSE" | jq -c '.Data[] | select(.Foundation.ID == "a0941000002wBz4AAE" and .Status == "Active") | {Name: .Name, Slug: .Slug, Category: .Category, ProjectLogo: .ProjectLogo, RepositoryURL: .RepositoryURL}')
-        echo "$FILTERED_JSON_STREAM"
+        # Filter for main categories (Status == "Active") and accumulate
+        FILTERED_JSON_STREAM_MAIN_CURRENT_PAGE=$(echo "$RESPONSE" | jq -c '.Data[] | select(.Foundation.ID == "a0941000002wBz4AAE" and .Status == "Active") | {Name: .Name, Slug: .Slug, Category: .Category, ProjectLogo: .ProjectLogo, RepositoryURL: .RepositoryURL}')
+        if [ -n "$FILTERED_JSON_STREAM_MAIN_CURRENT_PAGE" ]; then
+            MAIN_ACTIVE_PROJECTS_JSON_LINES+="$FILTERED_JSON_STREAM_MAIN_CURRENT_PAGE"$'\n'
+        fi
 
-        CURRENT_PAGE_FILTERED_COUNT=$(echo "$FILTERED_JSON_STREAM" | wc -l)
-        PROJECTS_LISTED_COUNT=$((PROJECTS_LISTED_COUNT + CURRENT_PAGE_FILTERED_COUNT))
+        # Filter for "Formation - Exploratory" and accumulate
+        FILTERED_JSON_STREAM_FORMING_CURRENT_PAGE=$(echo "$RESPONSE" | jq -c '.Data[] | select(.Foundation.ID == "a0941000002wBz4AAE" and .Status == "Formation - Exploratory") | {Name: .Name, ProjectLogo: .ProjectLogo, RepositoryURL: .RepositoryURL}')
+        if [ -n "$FILTERED_JSON_STREAM_FORMING_CURRENT_PAGE" ]; then
+            FORMING_PROJECTS_JSON_LINES+="$FILTERED_JSON_STREAM_FORMING_CURRENT_PAGE"$'\n'
+            # We will use jq's length later, no need for separate shell counter here
+        fi
+
         OFFSET=$((OFFSET + PROJECTS_RECEIVED_ON_PAGE))
         sleep 0.2
-    done | jq -n -r "$JQ_HTML_PROCESSOR"
+    done # <-- IMPORTANT: NO PIPE HERE!
+
+    # --- HTML Generation after all data is collected ---
+
+    # Generate HTML for main categories (TAG, Graduated, Incubating, Sandbox)
+    if [ -n "$MAIN_ACTIVE_PROJECTS_JSON_LINES" ]; then
+        # This pipes the accumulated lines to jq, slurps them into an array, and processes
+        jq -n -r "$JQ_HTML_PROCESSOR" <<< "$MAIN_ACTIVE_PROJECTS_JSON_LINES"
+    else
+        echo ""
+    fi
+
+    # Generate HTML for "Forming Projects"
+    if [ -n "$FORMING_PROJECTS_JSON_LINES" ]; then
+        # Slurp the accumulated lines into a JSON array, then process with the JQ_FORMING_PROJECTS_PROCESSOR
+        jq -s '.' <<< "$FORMING_PROJECTS_JSON_LINES" | jq -r "$JQ_FORMING_PROJECTS_PROCESSOR"
+    else
+        echo "<h2>Forming Projects (0)</h2>\n<ul class=\"project-list\">\n</ul>" # Display empty section with 0 count
+    fi
 
     # Print the HTML footer
     cat <<EOF
@@ -168,8 +213,13 @@ EOF
 
 echo "--------------------------------------------------------------------------"
 echo "Finished fetching projects and generating HTML."
-echo "Total projects matching Foundation ID filter: $PROJECTS_LISTED_COUNT"
+# Updated total counts, as they are now accurately reflected from collected data
+FINAL_MAIN_PROJECTS_COUNT=$(jq -c '.' <<< "$MAIN_ACTIVE_PROJECTS_JSON_LINES" | wc -l)
+FINAL_FORMING_PROJECTS_COUNT=$(jq -c '.' <<< "$FORMING_PROJECTS_JSON_LINES" | wc -l)
+
+echo "Total projects matching Foundation ID filter (main categories): $FINAL_MAIN_PROJECTS_COUNT"
+echo "Total 'Formation - Exploratory' projects identified: $FINAL_FORMING_PROJECTS_COUNT"
 echo "HTML file generated: $OUTPUT_HTML_FILE"
 
 # 4. SET ACTION OUTPUT: Make the path to the generated file available to other steps.
-echo "html_file=${OUTPUT_HTML_FILE}" >> $GITHUB_OUTPUT
+echo "html_file=${OUTPUT_HTML_FILE}" >> "$GITHUB_OUTPUT"
