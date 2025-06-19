@@ -12,7 +12,7 @@
         margin-bottom: 5px;
         font-size: 1.1em;
         background-color: #ffffff;
-        padding: 5px 10px; /* Further reduced vertical and horizontal padding */
+        padding: 5px 10px;
         border-radius: 5px;
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
@@ -27,17 +27,15 @@
         box-sizing: border-box;
         font-size: 1.1em;
     }
-    /* Style for project logos */
     .project-logo {
-        width: 60px;  /* Reduced logo width */
-        height: 60px; /* Reduced logo height to match width */
+        width: 60px;
+        height: 60px;
         vertical-align: middle;
-        margin-right: 5px; /* Reduced space between logo and text */
+        margin-right: 5px;
         object-fit: contain;
     }
-    /* Specifically target the main CNCF calendar logo if it's too large */
-    .main-cncf-logo { /* Add this class to the CNCF main calendar img tag */
-        width: 60px !important; /* Make it consistent with project logos */
+    .main-cncf-logo {
+        width: 60px !important;
         height: 60px !important;
         vertical-align: middle;
         margin-right: 8px;
@@ -51,26 +49,32 @@
     <ul>
         <li><img src="https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/cncf.svg" alt="CNCF Logo" width="200" height="200" style="vertical-align: middle; margin-right: 16px; object-fit: contain;"> CNCF Main calendar (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/cncf">Project calendar</a>)</li>
     </ul>
+
     <input type="text" id="search-box" onkeyup="filterProjects()" placeholder="Search for projects...">
+
     <script>
         function filterProjects() {
             let input = document.getElementById('search-box');
             let filter = input.value.toUpperCase();
             let projectLists = document.getElementsByClassName('project-list');
+
             for (let i = 0; i < projectLists.length; i++) {
                 let ul = projectLists[i];
                 let li = ul.getElementsByClassName('project-item');
+
                 let categoryHasVisibleProjects = false;
+
                 for (let j = 0; j < li.length; j++) {
                     let projectItem = li[j];
                     let textValue = projectItem.textContent || projectItem.innerText;
                     if (textValue.toUpperCase().indexOf(filter) > -1) {
-                        projectItem.style.display = "flex";
+                        projectItem.style.display = "flex"; // Changed from "" to "flex" as per your previous HTML
                         categoryHasVisibleProjects = true;
                     } else {
                         projectItem.style.display = "none";
                     }
                 }
+
                 let h2 = ul.previousElementSibling;
                 if (h2 && h2.tagName === 'H2') {
                     h2.style.display = categoryHasVisibleProjects ? "" : "none";
@@ -78,6 +82,7 @@
             }
         }
     </script>
+
 <h2>TAG (9)</h2>
 <ul class="project-list">
 <li class="project-item"><img src="https://lfx-cdn-prod.s3.us-east-1.amazonaws.com/project-artifacts/tag-developer-experience/tag-developer-experience-logo.svg?v=1746544274972" alt="TAG Developer Experience Logo" class="project-logo"> TAG Developer Experience (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/tag-developer-experience">Project calendar</a>)</li>
@@ -308,5 +313,6 @@
 <li class="project-item"><img src="https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/zot.svg" alt="zot Logo" class="project-logo"> zot (<a href="https://zoom-lfx.platform.linuxfoundation.org/meetings/zot">Project calendar</a>) (<a href="https://github.com/project-zot/zot">Project code</a>)</li>
 </ul>
 
+<h2>Forming Projects (0)</h2>\n<ul class="project-list">\n</ul>
 </body>
 </html>
