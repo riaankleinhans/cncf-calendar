@@ -1,33 +1,34 @@
 #!/bin/bash
 # entrypoint.sh
+#
+# This script fetches CNCF project data from the LFX API, processes it, and generates an HTML file listing projects by category.
+# It is designed for use in a GitHub Action and expects the LFX_TOKEN environment variable to be set.
 
-# Exit immediately if a command exits with a non-zero status.
-set -e
+# Strict error handling: exit on error, unset variable, or failed pipeline
+set -euo pipefail
+
+# Trap to ensure temp files are cleaned up on exit or error
+cleanup() {
+    rm -f "$FORMING_PROJECTS_TEMP_FILE"
+}
+trap cleanup EXIT
 
 # 1. TOKEN VALIDATION: Read the token from an environment variable.
-if [ -z "$LFX_TOKEN" ]; then
+if [ -z "${LFX_TOKEN:-}" ]; then
     echo "Error: The LFX_TOKEN environment variable is not set." >&2
     exit 1
 fi
 
 # API and HTML settings
 BASE_API_URL="https://api-gw.platform.linuxfoundation.org/project-service/v1/projects"
-# Ensure the output file is created at the root of the repository checkout.
 OUTPUT_HTML_FILE="${GITHUB_WORKSPACE}/index.html"
 PAGE_SIZE=100
 OFFSET=0
-# PROJECTS_LISTED_COUNT will still be affected by subshell for final print, but HTML will be generated correctly.
-# JQ_HTML_PROCESSOR already handles count per category.
-
-# NEW: Variables for Forming Projects
-FORMING_PROJECTS_TEMP_FILE=$(mktemp) # Temporary file to store forming projects JSON lines
+FOUNDATION_ID="a0941000002wBz4AAE" # CNCF Foundation ID
 FORMING_PROJECTS_STATUS="Formation - Exploratory"
-FOUNDATION_ID="a0941000002wBz4AAE" # Ensure this matches your Foundation ID
+FORMING_PROJECTS_TEMP_FILE=$(mktemp)
 
-echo "Fetching projects, filtering, sorting, and generating HTML..."
-echo "--------------------------------------------------------------------------"
-
-# 2. JQ PROCESSOR for Main Categories: This remains unchanged.
+# JQ processors for HTML generation
 JQ_HTML_PROCESSOR='
 def category_rank:
   if .Category == "TAG" then 1
@@ -55,7 +56,6 @@ map(
 ) | add
 '
 
-# NEW JQ PROCESSOR for Forming Projects - includes count
 JQ_FORMING_PROJECTS_PROCESSOR='
 . | # Expects an array as input
 sort_by(.Name) |
@@ -70,9 +70,8 @@ sort_by(.Name) |
 "</ul>\n"
 '
 
-# 3. HTML GENERATION: This block pipes all output to the final HTML file.
-{
-    # Print the HTML header and search box
+# Function: Print the HTML header and search box
+print_html_header() {
     cat <<EOF
 <!DOCTYPE html>
 <html>
@@ -88,7 +87,7 @@ sort_by(.Name) |
         margin-bottom: 5px;
         font-size: 1.1em;
         background-color: #ffffff;
-        padding: 5px 10px; /* Further reduced vertical and horizontal padding */
+        padding: 5px 10px;
         border-radius: 5px;
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
@@ -103,17 +102,15 @@ sort_by(.Name) |
         box-sizing: border-box;
         font-size: 1.1em;
     }
-    /* Style for project logos */
     .project-logo {
-        width: 60px;  /* Reduced logo width */
-        height: 60px; /* Reduced logo height to match width */
+        width: 60px;
+        height: 60px;
         vertical-align: middle;
-        margin-right: 5px; /* Reduced space between logo and text */
+        margin-right: 5px;
         object-fit: contain;
     }
-    /* Specifically target the main CNCF calendar logo if it's too large */
-    .main-cncf-logo { /* Add this class to the CNCF main calendar img tag */
-        width: 60px !important; /* Make it consistent with project logos */
+    .main-cncf-logo {
+        width: 60px !important;
         height: 60px !important;
         vertical-align: middle;
         margin-right: 8px;
@@ -155,71 +152,83 @@ sort_by(.Name) |
         }
     </script>
 EOF
+}
 
-    # Loop to fetch all paginated data. This pipe sends to JQ_HTML_PROCESSOR.
-    while true; do
-        CURRENT_API_URL="${BASE_API_URL}?offset=${OFFSET}&limit=${PAGE_SIZE}"
-        RESPONSE=$(curl -sS -H "Authorization: Bearer $LFX_TOKEN" "$CURRENT_API_URL")
-
-        if ! echo "$RESPONSE" | jq -e '.Data' > /dev/null 2>&1; then
-            echo "Error: Invalid JSON response or 'Data' array not found for offset $OFFSET." >&2
-            break
-        fi
-
-        PROJECTS_RECEIVED_ON_PAGE=$(echo "$RESPONSE" | jq '.Data | length')
-        if [ "$PROJECTS_RECEIVED_ON_PAGE" -eq 0 ]; then
-            break
-        fi
-
-        # Filter for main categories and echo to the pipeline (already works)
-        FILTERED_JSON_STREAM_MAIN=$(echo "$RESPONSE" | jq -c '.Data[] | select(.Foundation.ID == "a0941000002wBz4AAE" and .Status == "Active") | {Name: .Name, Slug: .Slug, Category: .Category, ProjectLogo: .ProjectLogo, RepositoryURL: .RepositoryURL}')
-        echo "$FILTERED_JSON_STREAM_MAIN" # This is piped to the JQ_HTML_PROCESSOR below
-
-        # NEW: Filter for Forming Projects and save to temporary file
-        FILTERED_JSON_STREAM_FORMING_CURRENT_PAGE=$(echo "$RESPONSE" | jq -c '.Data[] | select(.Foundation.ID == "'"$FOUNDATION_ID"'" and .Status == "'"$FORMING_PROJECTS_STATUS"'") | {Name: .Name, ProjectLogo: .ProjectLogo, RepositoryURL: .RepositoryURL}')
-        if [ -n "$FILTERED_JSON_STREAM_FORMING_CURRENT_PAGE" ]; then
-            echo "$FILTERED_JSON_STREAM_FORMING_CURRENT_PAGE" >> "$FORMING_PROJECTS_TEMP_FILE"
-        fi
-
-        OFFSET=$((OFFSET + PROJECTS_RECEIVED_ON_PAGE))
-        sleep 0.2
-    done | jq -n -r "$JQ_HTML_PROCESSOR" # This pipeline processes the main categories
-
-    # NEW: Generate and print the HTML for "Forming Projects"
-    # This runs AFTER the main pipeline completes, using data from the temp file.
-    if [ -s "$FORMING_PROJECTS_TEMP_FILE" ]; then # Check if file exists and is not empty
-        # Pipe content of temp file, slurp into array, and process with its JQ processor
-        cat "$FORMING_PROJECTS_TEMP_FILE" | jq -s '.' | jq -r "$JQ_FORMING_PROJECTS_PROCESSOR"
-    else
-        # Display empty section with 0 count if no forming projects found
-        echo "<h2>Forming Projects (0)</h2>\n<ul class=\"project-list\">\n</ul>"
-    fi
-
-    # Print the HTML footer
+# Function: Print the HTML footer
+print_html_footer() {
     cat <<EOF
 </body>
 </html>
 EOF
+}
+
+# Function: Fetch all paginated project data from the API
+fetch_all_projects() {
+    local offset=0
+    while true; do
+        local current_api_url="${BASE_API_URL}?offset=${offset}&limit=${PAGE_SIZE}"
+        local response
+        response=$(curl -sS -H "Authorization: Bearer $LFX_TOKEN" "$current_api_url")
+
+        # Validate JSON and presence of .Data
+        if ! echo "$response" | jq -e '.Data' > /dev/null 2>&1; then
+            echo "Error: Invalid JSON response or 'Data' array not found for offset $offset." >&2
+            break
+        fi
+
+        local projects_received_on_page
+        projects_received_on_page=$(echo "$response" | jq '.Data | length')
+        if [ "$projects_received_on_page" -eq 0 ]; then
+            break
+        fi
+
+        # Output main category projects as JSON lines
+        echo "$response" | jq -c '.Data[] | select(.Foundation.ID == "'"$FOUNDATION_ID"'" and .Status == "Active") | {Name: .Name, Slug: .Slug, Category: .Category, ProjectLogo: .ProjectLogo, RepositoryURL: .RepositoryURL}'
+
+        # Output forming projects to temp file
+        local forming_json
+        forming_json=$(echo "$response" | jq -c '.Data[] | select(.Foundation.ID == "'"$FOUNDATION_ID"'" and .Status == "'"$FORMING_PROJECTS_STATUS"'") | {Name: .Name, ProjectLogo: .ProjectLogo, RepositoryURL: .RepositoryURL}')
+        if [ -n "$forming_json" ]; then
+            echo "$forming_json" >> "$FORMING_PROJECTS_TEMP_FILE"
+        fi
+
+        offset=$((offset + projects_received_on_page))
+        sleep 0.2
+    done
+}
+
+# Function: Generate HTML for main project categories using jq
+generate_main_categories_html() {
+    jq -n -r "$JQ_HTML_PROCESSOR"
+}
+
+# Function: Generate HTML for forming projects using jq
+generate_forming_projects_html() {
+    if [ -s "$FORMING_PROJECTS_TEMP_FILE" ]; then
+        cat "$FORMING_PROJECTS_TEMP_FILE" | jq -s '.' | jq -r "$JQ_FORMING_PROJECTS_PROCESSOR"
+    else
+        echo "<h2>Forming Projects (0)</h2>\n<ul class=\"project-list\">\n</ul>"
+    fi
+}
+
+# Main execution: generate HTML file
+{
+    print_html_header
+    # Fetch and process all projects, pipe to jq for main categories
+    fetch_all_projects | generate_main_categories_html
+    # Generate forming projects section
+    generate_forming_projects_html
+    print_html_footer
 } > "$OUTPUT_HTML_FILE"
 
-# Clean up the temporary file
-rm -f "$FORMING_PROJECTS_TEMP_FILE"
-
-echo "--------------------------------------------------------------------------"
-echo "Finished fetching projects and generating HTML."
-
-# Recalculate final counts from the actual generated data, as main PROJECTS_LISTED_COUNT might be inaccurate due to subshell
-# For accurate final counts, you would typically process the accumulated data directly.
-# Given the "without breaking anything" (preserving existing main pipeline),
-# we calculate these by reading the temp file for forming projects, and the main HTML output for active.
+# Log summary and set GitHub Action output
 TOTAL_FORMING_PROJECTS_FINAL_COUNT=$(if [ -s "$FORMING_PROJECTS_TEMP_FILE" ]; then cat "$FORMING_PROJECTS_TEMP_FILE" | wc -l; else echo 0; fi)
-# The PROJECTS_LISTED_COUNT from the original script will still show 0 because it's in the subshell.
-# If you need an accurate *final total active count* shown in the logs, it would need similar accumulation to a temp file.
-# For now, we'll just show the Forming Project count accurately.
-
 echo "Total projects matching Foundation ID filter (main categories): (count from HTML if accurate, or 0 if from subshell)"
 echo "Total 'Formation - Exploratory' projects identified: $TOTAL_FORMING_PROJECTS_FINAL_COUNT"
 echo "HTML file generated: $OUTPUT_HTML_FILE"
-
-# 4. SET ACTION OUTPUT: Make the path to the generated file available to other steps.
 echo "html_file=${OUTPUT_HTML_FILE}" >> "$GITHUB_OUTPUT"
+
+# -------------------
+# JQ processors (unchanged, for brevity):
+# JQ_HTML_PROCESSOR and JQ_FORMING_PROJECTS_PROCESSOR should be copied from the original script.
+# -------------------
