@@ -39,14 +39,15 @@ def category_rank:
   end;
 [inputs] |
 map(. + {category_sort_key: category_rank}) |
-map(select(.category_sort_key > 0)) |
+map(select(select(.category_sort_key > 0))) |
 sort_by([.category_sort_key, .Name]) |
 group_by(.Category) |
 sort_by(.[0].category_sort_key) |
 map(
     (.[0].Category) as $current_category_name |
-    (length) as $project_count |
-    "<h2>" + $current_category_name + " (" + ($project_count | tostring) + ")</h2>\n<ul class=\"project-list\">\n" +
+    "<h2>" + (if $current_category_name == "TAG" then "TOC Technical Advisory Groups (TAG)" else $current_category_name end) + " (" + (length | tostring) + ")</h2>\n" +
+    (if $current_category_name == "TAG" then "<p>CNCF Technical Oversight Committee (TOC) meeting can be found on the <a href=\"https://zoom-lfx.platform.linuxfoundation.org/meetings/cncf\">CNCF Main calendar (Project calendar)</a></p>" else "" end) +
+    "<ul class=\"project-list\">\n" +
     (map(
         "<li class=\"project-item\"><img src=\"" + ((.ProjectLogo | select(length > 0)) // "https://lf-master-project-logos-prod.s3.us-east-2.amazonaws.com/cncf.svg") + "\" alt=\"" + .Name + " Logo\" class=\"project-logo\"> " + .Name + " (<a href=\"https://zoom-lfx.platform.linuxfoundation.org/meetings/" + (.Slug | @uri) + "\">Project calendar</a>)" +
         (if .RepositoryURL and (.RepositoryURL | length > 0) then " (<a href=\"" + .RepositoryURL + "\">Project code</a>)" else "" end) +
@@ -227,8 +228,3 @@ echo "Total projects matching Foundation ID filter (main categories): (count fro
 echo "Total 'Formation - Exploratory' projects identified: $TOTAL_FORMING_PROJECTS_FINAL_COUNT"
 echo "HTML file generated: $OUTPUT_HTML_FILE"
 echo "html_file=${OUTPUT_HTML_FILE}" >> "$GITHUB_OUTPUT"
-
-# -------------------
-# JQ processors (unchanged, for brevity):
-# JQ_HTML_PROCESSOR and JQ_FORMING_PROJECTS_PROCESSOR should be copied from the original script.
-# -------------------
