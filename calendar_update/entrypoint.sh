@@ -183,3 +183,48 @@ fetch_all_projects() {
             break
         fi
 
+        # Output main category projects as JSON lines
+        echo "$response" | jq -c '.Data[] | select(.Foundation.ID == "'"$FOUNDATION_ID"'" and .Status == "Active") | {Name: .Name, Slug: .Slug, Category: .Category, ProjectLogo: .ProjectLogo, RepositoryURL: .RepositoryURL}'
+
+        # Output forming projects to temp file
+        local forming_json
+        forming_json=$(echo "$response" | jq -c '.Data[] | select(.Foundation.ID == "'"$FOUNDATION_ID"'" and .Status == "'"$FORMING_PROJECTS_STATUS"'") | {Name: .Name, ProjectLogo: .ProjectLogo, RepositoryURL: .RepositoryURL}')
+        if [ -n "$forming_json" ]; then
+            echo "$forming_json" >> "$FORMING_PROJECTS_TEMP_FILE"
+        fi
+
+        offset=$((offset + projects_received_on_page))
+        sleep 0.2
+    done
+}
+
+# Function: Generate HTML for main project categories using jq
+generate_main_categories_html() {
+    jq -n -r "$JQ_HTML_PROCESSOR"
+}
+
+# Function: Generate HTML for forming projects using jq
+generate_forming_projects_html() {
+    if [ -s "$FORMING_PROJECTS_TEMP_FILE" ]; then
+        cat "$FORMING_PROJECTS_TEMP_FILE" | jq -s '.' | jq -r "$JQ_FORMING_PROJECTS_PROCESSOR"
+    else
+        echo "<h2>Forming Projects (0)</h2>\n<ul class=\"project-list\">\n</ul>"
+    fi
+}
+
+# Main execution: generate HTML file
+{
+    print_html_header
+    # Fetch and process all projects, pipe to jq for main categories
+    fetch_all_projects | generate_main_categories_html
+    # Generate forming projects section
+    generate_forming_projects_html
+    print_html_footer
+} > "$OUTPUT_HTML_FILE"
+
+# Log summary and set GitHub Action output
+TOTAL_FORMING_PROJECTS_FINAL_COUNT=$(if [ -s "$FORMING_PROJECTS_TEMP_FILE" ]; then cat "$FORMING_PROJECTS_TEMP_FILE" | wc -l; else echo 0; fi)
+echo "Total projects matching Foundation ID filter (main categories): (count from HTML if accurate, or 0 if from subshell)"
+echo "Total 'Formation - Exploratory' projects identified: $TOTAL_FORMING_PROJECTS_FINAL_COUNT"
+echo "HTML file generated: $OUTPUT_HTML_FILE"
+echo "html_file=${OUTPUT_HTML_FILE}" >> "$GITHUB_OUTPUT"
