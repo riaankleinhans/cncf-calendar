@@ -5,10 +5,11 @@ profiles:
     periodic_status_check: "1 week"
     allowed_voters:
       users:
-       - afmarcum
-       - SecurityCRob
+       - riaankleinhans
+       - kj-powell
       exclude_team_maintainers: true
     close_on_passing: true
     announcements:
       discussions:
         category: announcements
+
